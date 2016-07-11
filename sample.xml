@@ -1,0 +1,98 @@
+<plan>
+	<uav id="0">
+		<spawn>
+			<pos_x>0</pos_x>
+			<pos_y>0</pos_y>
+			<pos_z>0</pos_z>
+			<ori_x>0</ori_x>
+			<ori_y>0</ori_y>
+			<ori_z>0</ori_z>
+		</spawn>
+		<action id="0">
+			<goto_pose>
+				<pos_x>1</pos_x>
+				<pos_y>3</pos_y>
+				<pos_z>4</pos_z>
+				<ori_x>0</ori_x>
+				<ori_y>0</ori_y>
+				<ori_z>0</ori_z>
+			</goto_pose>
+		</action>
+		<action id="1">
+			<goto_pose>
+				<pos_x>2</pos_x>
+				<pos_y>5</pos_y>
+				<pos_z>6</pos_z>
+				<ori_x>0</ori_x>
+				<ori_y>2</ori_y>
+				<ori_z>1</ori_z>
+			</goto_pose>
+			<wait>
+				<for>0</for>
+			</wait>
+		</action>
+		<action id="2">
+			<goto_pose>
+				<pos_x>0</pos_x>
+				<pos_y>0</pos_y>
+				<pos_z>0</pos_z>
+				<ori_x>0</ori_x>
+				<ori_y>0</ori_y>
+				<ori_z>0</ori_z>
+			</goto_pose>
+			<wait>
+				<for>1</for>
+			<wait>
+		</action>
+	</uav>
+
+	<uav id="1">
+		<spawn>
+			<pos_x>1</pos_x>
+			<pos_y>0</pos_y>
+			<pos_z>0</pos_z>
+			<ori_x>0</ori_x>
+			<ori_y>0</ori_y>
+			<ori_z>0</ori_z>
+		</spawn>
+		<action id="3">
+			<goto_pose>
+				<pos_x>7</pos_x>
+				<pos_y>8</pos_y>
+				<pos_z>19</pos_z>
+				<ori_x>0</ori_x>
+				<ori_y>0</ori_y>
+				<ori_z>0</ori_z>
+			</goto_pose>
+			<wait>
+				<for>1</for>
+			</wait>
+		</action>
+		<action id="4">
+			<goto_pose>
+				<pos_x>5</pos_x>
+				<pos_y>3</pos_y>
+				<pos_z>3</pos_z>
+				<ori_x>0</ori_x>
+				<ori_y>2</ori_y>
+				<ori_z>1</ori_z>
+			</goto_pose>
+			<wait>
+				<for>3</for>
+			</wait>
+		</action>
+		<action id="5">
+			<goto_pose>
+				<pos_x>1</pos_x>
+				<pos_y>2</pos_y>
+				<pos_z>3</pos_z>
+				<ori_x>0</ori_x>
+				<ori_y>0</ori_y>
+				<ori_z>0</ori_z>
+			</goto_pose>
+			<wait>
+				<for>4</for>
+			<wait>
+		</action>
+	</uav>
+</plan>

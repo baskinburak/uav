@@ -1,0 +1,22 @@
+<plan> : This is the root element of XML.Every plan should include this.A plan can include only one of this.
+---- <uav> : Each UAVs motion is defined in one of these tags.
+-------- attr::id : An ID is assigned to an uav in this tag.
+-------- <spawn> : Defines the spawn point for an UAV.
+------------ <pos_x> : x coordinate of spawn point
+------------ <pos_y> : y coordinate of spawn point
+------------ <pos_z> : z coordinate of spawn point
+------------ <ori_x> : orientation in x axis at spawn
+------------ <ori_y> : orientation in y axis at spawn
+------------ <ori_z> : orientation in z axis at spawn
+-------- <action> : Defines a single action for an UAV.
+------------ attr:id : An ID is assigned to an action in this attribute.Unique inside a plan.
+------------ <goto_pose> : Tag that defines the target pose for the UAV.
+---------------- <pos_x> : x coordinate of position
+---------------- <pos_y> : y coordinate of position
+---------------- <pos_z> : z coordinate of position
+---------------- <ori_x> : orientation in x axis
+---------------- <ori_y> : orientation in y axis
+---------------- <ori_z> : orientation in z axis
+------------ <wait> : Tag that is used for synchronization.
+---------------- <for> : Wait for action to finish.(Action id is given) Mutually exclusive with <except>.
+---------------- <except> : Wait for actions to finish except given.(Action id is given) Mutually exclusive with <for>.
