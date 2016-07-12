@@ -1,4 +1,5 @@
 #include <ros/ros.h>
+#include <ros/message_event.h>
 #include "rapidxml.hpp"
 #include "rapidxml_utils.hpp"
 #include <string>
@@ -8,16 +9,25 @@
 #include <fstream>
 #include <streambuf>
 #include <iostream>
-#include <thread>
 #include <map>
 #include <mutex>
 #include <thread>
+#include <condition_variable>
+#include <uav/UAVPose.h>
+#include <uav/Done.h>
+
+std::mutex debug_print_mutex;
 
 class GLO {
 	public:
-		std::mutex mtx;
+		std::mutex mtx; // mutex for GLOBALS object.
+		std::mutex action_cnd_uniq_lck_mtx; // used for waiting actions cv.used as a parameter inside unique lock.
+		std::condition_variable action_cnd; // signaled when an action finishes.
 		std::vector<int> action_list;
-		std::vector<int> completed_actions;
+		std::map<int, bool> completed_actions;
+		std::vector<std::thread*> thread_refs;
+		std::vector<std::string> uav_names;
+		std::map<std::string, bool> uav_action_done; // stores whether current action of uav is completed.
 		GLO() { }
 } GLOBALS;
 
@@ -116,6 +126,30 @@ class Wait {
 
 		Wait() {
 		}
+
+		int get_for(int idx) {
+			if(idx<(this->_for).size())
+				return (this->_for)[idx];
+			return -1;
+		}
+
+		int get_except(int idx) {
+			if(idx<(this->_except).size())
+				return (this->_except)[idx];
+			return -1;
+		}
+
+		bool has_except(int except) { // return if this has specific except.
+			for(int i=0; i<(this->_except).size(); i++) {
+				if(except == (this->_except)[i])
+					return true;
+			}
+			return false;
+		}
+
+		bool has_except() { // returns if this has any except.
+			return (this->_except).size() > 0;
+		}
 };
 
 class Action {
@@ -158,6 +192,38 @@ class Action {
 			(this->_wait).add_except(val);
 		}
 
+		int get_wait_for(int idx) {
+			return (this->_wait).get_for(idx);
+		}
+
+		int get_wait_except(int idx) {
+			return (this->_wait).get_except(idx);
+		}
+
+		bool has_wait_except(int except) {
+			return (this->_wait).has_except(except);
+		}
+
+		bool has_wait_except() {
+			return (this->_wait).has_except();
+		}
+
+		int get_id() {
+			return this->_id;
+		}
+
+		uav::UAVPose get_UAVPose() {
+			uav::UAVPose pose;
+
+			pose.position.x = (this->_goto_pose).get_pos_x();
+			pose.position.y = (this->_goto_pose).get_pos_y();
+			pose.position.z = (this->_goto_pose).get_pos_z();
+			pose.orientation.x = (this->_goto_pose).get_ori_x();
+			pose.orientation.y = (this->_goto_pose).get_ori_y();
+			pose.orientation.z = (this->_goto_pose).get_ori_z();
+
+			return pose;
+		}
 };
 
 class ActionList {
@@ -205,8 +271,10 @@ class UAV {
 		ActionList _action_list;
 		std::string _name;
 		Pose _spawn_point;
+		Action* _current_action;
 	public:
 		UAV(std::string n):_name(n) {
+			_current_action = NULL;
 		}
 
 		bool has_action_left() {
@@ -230,11 +298,88 @@ class UAV {
 			Action* act = new Action(action);
 			(this->_action_list).add_action(*act);
 		}
+
+		std::string get_name() {
+			return this->_name;
+		}
+
+		Action& get_action() {
+			this->_current_action = (this->_action_list).get_head()
+			return *(this->current_action);
+		}
 };
 
+bool action_can_proceed(Action& action) {
+	bool has_for = false;
+	GLOBALS.mtx.lock();
+	for(int i=0, action_id=action.get_wait_for(i); action_id!=-1; action_id=action.get_wait_for(++i)) {
+		has_for = true;
+		if(!GLOBALS.completed_actions[action_id]) {
+			GLOBALS.mtx.unlock();
+			return false;
+		}
+	}
 
-void drive_UAV(UAV uav) {
+	if(!has_for && action.has_wait_except()) {
+		for(int i=0; i<GLOBALS.action_list.size(); i++) {
+			if(!action.has_wait_except(GLOBALS.action_list[i]) && !GLOBALS.completed_actions[GLOBALS.action_list[i]]) {
+				GLOBALS.mtx.unlock();
+				return false;
+			}
+		}
+	}
+	GLOBALS.mtx.unlock();
+	return true;
+}
+
+void answer_received(const ros::MessageEvent<uav::Done const>& event) {
+	const uav::Done message = event.getMessage();
+	
+}
+
+void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
+
+	ros::Publisher publisher = nh.advertise<uav::UAVPose>(uav.get_name() + "/DesiredPose", 1000);
+	ros::Subscriber subscriber = nh.subscribe(uav.get_name() + "/CommandDone", 1000, &answer_received);
+
+	debug_print_mutex.lock();
+	std::cout << "Starting " << uav.get_name() << std::endl;
+	debug_print_mutex.unlock();
+
 	while(uav.has_action_left()) {
+
+		debug_print_mutex.lock();
+		std::cout << uav.get_name() << " has action left" << std::endl;
+		debug_print_mutex.unlock();
+
+		Action action = uav.get_action();
+		// send desired pose to DesiredPose
+		// CommandDone // done true? false, x, y, z, ox, oy, oz
+
+		GLOBALS.mtx.lock();
+
+		std::unique_lock<std::mutex> ulck(GLOBALS.action_cnd_uniq_lck_mtx);
+		GLOBALS.mtx.unlock();
+		while(!action_can_proceed(action)) {
+			debug_print_mutex.lock();
+			std::cout << action.get_id() << " cannot proceed." << std::endl;
+			debug_print_mutex.unlock();
+			GLOBALS.action_cnd.wait(ulck);
+		}
+		ulck.unlock();
+		//now the action can proceed.
+		debug_print_mutex.lock();
+		std::cout << action.get_id() << " can proceed" << std::endl;
+		debug_print_mutex.unlock();
+
+		ros::Rate try_rate(1);
+
+		while(ros::ok() && !GLOBALS.uav_action_done(uav.get_name())) {
+			uav::UAVPose pose = action.get_UAVPose();
+			publisher.publish(pose);
+			try_rate.sleep();
+		}
+
 	}
 }
 
@@ -302,7 +447,16 @@ void populate(ros::NodeHandle& nh) {
 		}
 
 		std::string name = "uav" + id;
-		UAV uav(name);
+
+		GLOBALS.mtx.lock();
+		if(find(GLOBALS.uav_names.begin(), GLOBALS.uav_names.end(), name) != GLOBALS.uav_names.end()) {
+			throw UAVException("{XML ERROR} Duplicate UAV name " + name);
+		}
+		GLOBALS.uav_names.push_back(name);
+		GLOBALS.mtx.unlock();
+
+		UAV *uavp = new UAV(name);
+		UAV &uav = *uavp;
 		rapidxml::xml_node<> *spawn_node = uav_node->first_node("spawn");
 		if(!spawn_node) {
 			throw UAVException(std::string("{XML ERROR} No spawn point specified for UAV ") + name);
@@ -327,6 +481,10 @@ void populate(ros::NodeHandle& nh) {
 			}
 
 			int _id = std::stoi(id);
+			if(_id < 0) {
+				throw UAVException("Action IDs must not be negative");
+			}
+
 
 			Action action(_id);
 
@@ -356,13 +514,19 @@ void populate(ros::NodeHandle& nh) {
 				}
 			}
 			GLOBALS.mtx.lock();
+			if(find(GLOBALS.action_list.begin(), GLOBALS.action_list.end(), _id) != GLOBALS.action_list.end()) {
+				throw UAVException("{XML ERROR} Duplicate action id " + std::string(id));
+			}
 			GLOBALS.action_list.push_back(_id);
 			GLOBALS.mtx.unlock();
 			uav.add_action(action);
 		}
-
+		// start uav.
+		std::thread *uav_thread = new std::thread(&drive_UAV, std::ref(uav), std::ref(nh));
+		GLOBALS.mtx.lock();
+		GLOBALS.thread_refs.push_back(uav_thread);
+		GLOBALS.mtx.unlock();
 	}
-	// start uav.
 }
 
 int main(int argc, char* argv[]) {
@@ -371,6 +535,9 @@ int main(int argc, char* argv[]) {
 
 	populate(nh);
 
+	for(int i=0; i<GLOBALS.thread_refs.size(); i++) {
+		(GLOBALS.thread_refs[i])->join();
+	}
 	return 0;
 }
 
