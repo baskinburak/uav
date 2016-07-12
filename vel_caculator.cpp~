@@ -43,8 +43,6 @@ class VelHelp{
 		}
 
 };
-
-
 VelHelp vel_handle;
 void differenceHandle(const uav::UAVPose &msg){
 	vel_handle.setVel(msg.linear, msg.angular);
