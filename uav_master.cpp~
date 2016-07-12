@@ -10,6 +10,17 @@
 #include <iostream>
 #include <thread>
 #include <map>
+#include <mutex>
+#include <thread>
+
+class GLO {
+	public:
+		std::mutex mtx;
+		std::vector<int> action_list;
+		std::vector<int> completed_actions;
+		GLO() { }
+} GLOBALS;
+
 
 
 class UAVException : public std::exception {
@@ -83,16 +94,24 @@ class Wait {
 	public:
 		void add_for(int val) {
 			if((this->_except).size() != 0) {
-				throw UAVException("<for> and <except> are mutually exclusive.");
+				throw UAVException("{XML ERROR} <for> and <except> are mutually exclusive.");
 			}
 			this->_for.push_back(val);
 		}
 
 		void add_except(int val) {
 			if((this->_for).size() != 0) {
-				throw UAVException("<for> and <except> are mutually exclusive.");
+				throw UAVException("{XML ERROR} <for> and <except> are mutually exclusive.");
 			}
 			this->_except.push_back(val);
+		}
+
+		Wait operator=(Wait& wait) {
+			if(this != &wait) {
+				this->_for = wait._for;
+				this->_except = wait._except;
+			}
+			return *this;
 		}
 
 		Wait() {
@@ -107,6 +126,21 @@ class Action {
 	public:
 
 		Action* next;
+
+		Action(Action& action) {
+			this->_id = action._id;
+			this->_goto_pose = action._goto_pose;
+			this->_wait = action._wait;
+		}
+
+		Action operator=(Action& action) {
+			if(this != &action) {
+				this->_id = action._id;
+				this->_goto_pose = action._goto_pose;
+				this->_wait = action._wait;
+			}
+			return *this;
+		}
 
 		Action(int i):_id(i) { 
 			next = NULL;
@@ -188,8 +222,13 @@ class UAV {
 			_spawn_point.set_ori_z(oz);
 		}
 
+		void set_spawn_pose(const Pose &pose) {
+			this->_spawn_point = pose;
+		}
+
 		void add_action(Action& action) {
-			(this->_action_list).add_action(action);
+			Action* act = new Action(action);
+			(this->_action_list).add_action(*act);
 		}
 };
 
@@ -200,77 +239,130 @@ void drive_UAV(UAV uav) {
 }
 
 
+Pose read_pose(rapidxml::xml_node<>* node) {
+
+	double s_x, s_y, s_z, s_ox, s_oy, s_oz;
+
+	rapidxml::xml_node<> *pose_node = node->first_node("pos_x");
+	if(!pose_node) {
+		throw UAVException("{XML ERROR} No x coordinate specified");
+	}
+	s_x = std::stod(pose_node->value());
+
+	pose_node = node->first_node("pos_y");
+	if(!pose_node) {
+		throw UAVException("{XML ERROR} No y coordinate specified");
+	}
+	s_y = std::stod(pose_node->value());
+
+	pose_node = node->first_node("pos_z");
+	if(!pose_node) {
+		throw UAVException("{XML ERROR} No z coordinate specified");
+	}
+	s_z = std::stod(pose_node->value());
+
+	pose_node = node->first_node("ori_x");
+	if(!pose_node) {
+		throw UAVException("{XML ERROR} No x orientation specified");
+	}
+	s_ox = std::stod(pose_node->value());
+
+	pose_node = node->first_node("ori_y");
+	if(!pose_node) {
+		throw UAVException("{XML ERROR} No y orientation specified");
+	}
+	s_oy = std::stod(pose_node->value());
+
+	pose_node = node->first_node("ori_z");
+	if(!pose_node) {
+		throw UAVException("{XML ERROR} No z orientation specified");
+	}
+	s_oz = std::stod(pose_node->value());
+
+	return Pose(s_x, s_y, s_z, s_ox, s_oy, s_oz);
+}
+
+
 void populate(ros::NodeHandle& nh) {
 	rapidxml::file<> file("/home/baskin/KOVAN/src/uav/uav_src/sample.xml");
 	rapidxml::xml_document<> xml_doc;
 	xml_doc.parse<rapidxml::parse_default>(file.data());
 	rapidxml::xml_node<> *plan_node = xml_doc.first_node("plan");
-	for(rapidxml::xml_node<> *uav_node = plan_node->first_node("uav"); uav_node; uav_node = uav_node->next_sibling()) {
+	for(rapidxml::xml_node<> *uav_node = plan_node->first_node("uav"); uav_node; uav_node = uav_node->next_sibling("uav")) {
 		std::string id = "";
 		for(rapidxml::xml_attribute<> *uav_attr = uav_node->first_attribute(); uav_attr; uav_attr = uav_attr->next_attribute()) {
-			if(uav_attr->name() == "id") {
+			if(uav_attr->name() == std::string("id")) {
 				id = uav_attr->value();
+				break;
 			}
 		}
 
 		if(id == "") {
-			throw UAVException("No ID specified for the UAV");
+			throw UAVException("{XML ERROR} No ID specified for the UAV");
 		}
 
-		std::string name = "/uav" + id;
+		std::string name = "uav" + id;
 		UAV uav(name);
-
 		rapidxml::xml_node<> *spawn_node = uav_node->first_node("spawn");
 		if(!spawn_node) {
-			throw UAVException(std::string("No spawn point specified for UAV ") + name);
+			throw UAVException(std::string("{XML ERROR} No spawn point specified for UAV ") + name);
 		}
 
-		double s_x, s_y, s_z, s_ox, s_oy, s_oz;
+		Pose spawn_pose = read_pose(spawn_node);
 
-		rapidxml::xml_node<> *pose_node = spawn_node->first_node("pos_x");
-		if(!pose_node) {
-			throw UAVException(std::string("No x spawn coordinate specified for UAV ") + name);
-		}
-		s_x = std::stod(pose_node->value());
+		uav.set_spawn_pose(spawn_pose);
 
-		pose_node = spawn_node->first_node("pos_y");
-		if(!pose_node) {
-			throw UAVException(std::string("No y spawn coordinate specified for UAV ") + name);
-		}
-		s_y = std::stod(pose_node->value());
+		for(rapidxml::xml_node<> *action_node = uav_node->first_node("action"); action_node; action_node = action_node->next_sibling("action")) {
+			id="";
 
-		pose_node = spawn_node->first_node("pos_z");
-		if(!pose_node) {
-			throw UAVException(std::string("No z spawn coordinate specified for UAV ") + name);
-		}
-		s_z = std::stod(pose_node->value());
+			for(rapidxml::xml_attribute<> *id_attr = action_node->first_attribute(); id_attr; id_attr=id_attr->next_attribute()) {
+				if(id_attr->name() == std::string("id")) {
+					id = id_attr->value();
+					break;
+				}
+			}
 
-		pose_node = spawn_node->first_node("ori_x");
-		if(!pose_node) {
-			throw UAVException(std::string("No x spawn orientation specified for UAV ") + name);
-		}
-		s_ox = std::stod(pose_node->value());
+			if(id == "") {
+				throw UAVException(std::string("{XML ERROR} UAV ") + name + std::string(" has an action without id attribute"));
+			}
 
-		pose_node = spawn_node->first_node("ori_y");
-		if(!pose_node) {
-			throw UAVException(std::string("No y spawn orientation specified for UAV ") + name);
-		}
-		s_oy = std::stod(pose_node->value());
+			int _id = std::stoi(id);
 
-		pose_node = spawn_node->first_node("ori_z");
-		if(!pose_node) {
-			throw UAVException(std::string("No z spawn orientation specified for UAV ") + name);
-		}
-		s_oz = std::stod(pose_node->value());
+			Action action(_id);
 
-		uav.set_spawn_pose(s_x, s_y, s_z, s_ox, s_oy, s_oz);
+			rapidxml::xml_node<> *goto_node = action_node->first_node("goto_pose");
+			if(!goto_node) {
+				throw UAVException(std::string("{XML ERROR} Action with id ") + id + std::string(" does not have <goto_pose> as child"));
+			}
 
-		for(rapidxml::xml_node<> *action_node = uav_node->first_node("action"); action_node; action_node = action_node->next_sibling()) {
-			
+			Pose pose = read_pose(goto_node);
+			action.set_goto_pose(pose);
+
+			rapidxml::xml_node<> *wait_node = action_node->first_node("wait");
+
+			if(wait_node) {
+				rapidxml::xml_node<> *for_node = wait_node->first_node("for");
+				if(for_node) {
+					for(; for_node; for_node = for_node->next_sibling("for")) {
+						action.add_wait_for(std::stoi(for_node->value()));
+					}
+				} else {
+					rapidxml::xml_node<> *except_node = wait_node->first_node("except");
+					if(except_node) {
+						for(; except_node; except_node = except_node->next_sibling("except")) {
+							action.add_wait_except(std::stoi(except_node->value()));
+						}
+					}
+				}
+			}
+			GLOBALS.mtx.lock();
+			GLOBALS.action_list.push_back(_id);
+			GLOBALS.mtx.unlock();
+			uav.add_action(action);
 		}
 
 	}
-	
+	// start uav.
 }
 
 int main(int argc, char* argv[]) {
