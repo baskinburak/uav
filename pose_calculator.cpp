@@ -317,7 +317,7 @@ void currentPose(const geometry_msgs::PoseStamped &msg){
 
 //Updates the desired Pose
 void desiredPose(const uav::UAVPose& msg){
-	pose_handle.DesiredUpdate(msg.linear.x, msg.linear.y, msg.linear.z);
+	pose_handle.DesiredUpdate(msg.position.x, msg.position.y, msg.position.z);
 }
 
 //Topic:CommandDone Message:Done bool x,y,z, ox,oy,oz
