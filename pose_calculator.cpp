@@ -1,5 +1,5 @@
 #include <ros/ros.h>
-#include <uav/UavPose.h>
+#include <uav/UAVPose.h>
 #include <geometry_msgs/Twist.h>
 #include <stdlib.h>
 #include <vector>
@@ -29,7 +29,7 @@ class PoseType{
 		double x;
 		double y;
 		double z;
-		PoseType operator=(const Pose& pose) {
+		PoseType operator=(const PoseType& pose) {
 			if(this != &pose){
 				this->x = pose.x;
 				this->y = pose.y;
@@ -49,9 +49,9 @@ class PoseHelp{
 		PoseType desired_linear;
 		PoseType desired_angular;
 	public:
-		PoseHelp(double x,double y,double z){
+		PoseHelp(){
 			desired_updated = false;
-			desire_achived = false;
+			desired_achived = false;
 			desired_set = false;
 			current_set = false;
 			current_angular.x = 0;
@@ -114,29 +114,29 @@ class PoseHelp{
 		}
 };
 
-PoseHelp pose_handle();
+PoseHelp pose_handle;
 ros::Publisher pub;
 
 
 //Updates the current Pose
 void currentPose(const geometry_msgs::Twist &msg){
 	pose_handle.CurrentUpdate(msg.linear.x, msg.linear.y, msg.linear.z);
-	uav::UAVPose msg;
+	uav::UAVPose pub_msg;
 	if((pose_handle.getDesiredSet() == false) || (pose_handle.getCurrentSet() == false))
 		return;
 	if(pose_handle.shouldWait() == false){
-		double x = poseHandle.getxDifference();
-		double y = poseHandle.getyDifference();
-		double z = poseHandle.getzDifference();
+		double x = pose_handle.getxDifference();
+		double y = pose_handle.getyDifference();
+		double z = pose_handle.getzDifference();
 		// if UAV is in the correct position
 		if( (x== 0) && (y==0) && (z==0)){
 			pose_handle.setDesiredAchived();
 		}
 		else{
-			msg.linear.x = x;
-			msg.linear.y = y;
-			msg.linear.z = z;
-			pub.publish(msg);
+			pub_msg.linear.x = x;
+			pub_msg.linear.y = y;
+			pub_msg.linear.z = z;
+			pub.publish(pub_msg);
 		}
 		 
 	}
@@ -157,7 +157,7 @@ int main(int argc,char** argv){
 	ros::Subscriber sub_current = nh.subscribe("cmd_vel",1000,&currentPose); 
 	ros::Subscriber sub_desired = nh.subscribe("DesiredPose",1000,&desiredPose);
 	while(ros::ok()){
-		ros.spinOnce();
+		ros::spinOnce();
 		
 	}
 	return 0;
