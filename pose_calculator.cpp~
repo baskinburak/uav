@@ -1,4 +1,5 @@
 #include <ros/ros.h>
+#include <uav/Done.h>
 #include <uav/UAVPose.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -35,15 +36,22 @@ class Linked{
 		}
 		
 		~Linked(){
-			while(!head->next){
-				Node* temp = tail;
-				tail = tail->prev;
-				temp->prev = NULL;
-				tail->next =NULL;
+			Node * temp;
+			Node * helper;
+			temp = head;
+			head = NULL;
+			tail = NULL;
+			if(temp){
+				while(!temp->next){
+					helper = temp;
+					temp = temp->next;
+					temp->prev = NULL;
+					helper->next = NULL;
+					delete helper;
+				}
 				delete temp;
 			}
-			tail = NULL; 
-			delete head;
+			
 			
 			
 		}
@@ -159,9 +167,9 @@ class PoseHelp{
 		bool desired_achived;
 		bool desired_set;
 		bool current_set;
-		PoseType current_linear;
+		PoseType current_position;
 		PoseType current_angular;
-		PoseType desired_linear;
+		PoseType desired_position;
 		PoseType desired_angular;
 		PidVar pidx;
 		PidVar pidy;
@@ -191,18 +199,18 @@ class PoseHelp{
 		}
 		
 		void CurrentUpdate(double x,double y,double z){
-			current_linear.x = x;
-			current_linear.y = y;
-			current_linear.z = z;
+			current_position.x = x;
+			current_position.y = y;
+			current_position.z = z;
 			current_set = true;
 		}
 		
 		void DesiredUpdate(double x,double y, double z){
-			if((desired_linear.x == x) && (desired_linear.y = y) && (desired_linear.z = z))
+			if((desired_position.x == x) && (desired_position.y = y) && (desired_position.z = z))
 				return;
-			desired_linear.x = x;
-			desired_linear.y = y;
-			desired_linear.z = z;
+			desired_position.x = x;
+			desired_position.y = y;
+			desired_position.z = z;
 			desired_set = true;
 			desired_updated = true;
 			desired_achived = false;
@@ -220,41 +228,41 @@ class PoseHelp{
 			return (!desired_updated) && (desired_achived);
 		}
 		
-		PoseType getDesiredLinear(){
-			return desired_linear;
+		PoseType getDesiredPosition(){
+			return desired_position;
 		}
 		
-		PoseType getCurrentLinear(){
-			return current_linear;
+		PoseType getCurrentPosition(){
+			return current_position;
 		}
 		
 		float getxDifference(){
-			if(isEqual(desired_linear.x, current_linear.x))
+			if(isEqual(desired_position.x, current_position.x))
 				return 0;
 			else
-				return (desired_linear.x - current_linear.x);
+				return (desired_position.x - current_position.x);
 		}
 		
 		float getyDifference(){
-			if(isEqual(desired_linear.y, current_linear.y))
+			if(isEqual(desired_position.y, current_position.y))
 				return 0;
 			else
-				return (desired_linear.y - current_linear.y);
+				return (desired_position.y - current_position.y);
 	
 		}
 		
 		float getzDifference(){
-		if(isEqual(desired_linear.z, current_linear.z))
+		if(isEqual(desired_position.z, current_position.z))
 				return 0;
 			else
-				return (desired_linear.z - current_linear.z);
+				return (desired_position.z - current_position.z);
 		}
 		
 		void setDesiredAchived(){
 			desired_achived = true;
 		}
 		double pidXCalculate(){
-			double error = desired_linear.x-current_linear.x;
+			double error = desired_position.x-current_position.x;
 			double propor = error*pidx.Kp;
 			double deriv = (error-pidx.pre_error)*pidx.Kd;
 			pidx.updateIntegral(error);
@@ -263,7 +271,7 @@ class PoseHelp{
 			return propor + deriv + integ;
 		}
 		double pidYCalculate(){
-			double error = desired_linear.y-current_linear.y;
+			double error = desired_position.y-current_position.y;
 			double propor = error*pidy.Kp;
 			double deriv = (error-pidy.pre_error)*pidy.Kd;
 			pidy.updateIntegral(error);
@@ -272,7 +280,7 @@ class PoseHelp{
 			return propor + deriv + integ;
 		}
 		double pidZCalculate(){
-			double error = desired_linear.z-current_linear.z;
+			double error = desired_position.z-current_position.z;
 			double propor = error*pidz.Kp;
 			double deriv = (error-pidz.pre_error)*pidz.Kd;
 			pidz.updateIntegral(error);
@@ -286,7 +294,8 @@ class PoseHelp{
 
 PoseHelp pose_handle;
 
-ros::Publisher pub;
+ros::Publisher pub_vel;
+ros::Publisher pub_done;
 
 
 //Updates the current Pose
@@ -301,13 +310,23 @@ void currentPose(const geometry_msgs::PoseStamped &msg){
 		double z = pose_handle.getzDifference();
 		// if UAV is in the correct position
 		if( (x== 0) && (y==0) && (z==0)){
+			PoseType desired_position = pose_handle.getDesiredPosition();
 			pose_handle.setDesiredAchived();
+			uav::Done done_send;
+			done_send.commandDone = true;
+			done_send.position.x = desired_position.x;
+			done_send.position.y = desired_position.y;
+			done_send.position.z = desired_position.z;
+			done_send.orientation.x = 0;
+			done_send.orientation.y = 0;
+			done_send.orientation.z = 0;
+			pub_done.publish(done_send);
 		}
 		else{
 			pub_msg.linear.x = x;
 			pub_msg.linear.y = y;
 			pub_msg.linear.z = z;
-			pub.publish(pub_msg);
+			pub_vel.publish(pub_msg);
 		}
 		 
 	}
@@ -324,7 +343,8 @@ void desiredPose(const uav::UAVPose& msg){
 int main(int argc,char** argv){
 	ros::init(argc,argv,"pose_calculator");
 	ros::NodeHandle nh;
-	pub = nh.advertise<geometry_msgs::Twist>("cmd_vel",1000);
+	pub_vel = nh.advertise<geometry_msgs::Twist>("cmd_vel",1000);
+	pub_done = nh.advertise<uav::Done>("CommandDone",1000);
 	ros::Subscriber sub_current = nh.subscribe("ground_truth_to_tf/pose",1000,&currentPose); 
 	ros::Subscriber sub_desired = nh.subscribe("DesiredPose",1000,&desiredPose);
 	while(ros::ok()){
