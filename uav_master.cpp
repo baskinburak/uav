@@ -17,6 +17,7 @@
 #include <uav/Done.h>
 #include <boost/shared_ptr.hpp>
 #include <signal.h>
+#include <boost/bind.hpp>
 
 std::mutex debug_print_mutex;
 
@@ -67,8 +68,8 @@ class Pose {
 				this->_pos_y = pose._pos_y;
 				this->_pos_z = pose._pos_z;
 				this->_ori_x = pose._ori_x;
-				this->_ori_x = pose._ori_x;
-				this->_ori_x = pose._ori_x;
+				this->_ori_y = pose._ori_y;
+				this->_ori_z = pose._ori_z;
 			}
 			return *this;
 		}
@@ -342,20 +343,41 @@ bool action_can_proceed(Action& action) {
 	return true;
 }
 
-void CommandDone_received(const ros::MessageEvent<uav::Done const>& event) {
-	boost::shared_ptr<const uav::Done> mptr = event.getMessage();
-	const uav::Done message = *mptr.get();
-	ros::M_string& header = event.getConnectionHeader();
+bool double_equal(double a, double b) {
+	double diff = a-b;
+	if(diff<0) diff *= -1;
+	return diff < 0.01;
+}
 
-	for(std::map<std::string, std::string>::iterator it = header.begin(); it != header.end(); it++) {
-		std::cout << it->first << " " << it->second << std::endl;
+bool correct_done_received(Action* act, uav::Done msg) {
+	Pose pose = act->get_goto_pose();
+	std::cout << "is correct???" << std::endl;
+	std::cout << pose.get_pos_x() << " " << pose.get_pos_y() << " " << pose.get_pos_z() << " " << pose.get_ori_x() << " " << pose.get_ori_y() << " " << pose.get_ori_z() << std::endl;
+	std::cout << msg.commandDone << " " << msg.position.x << " " << msg.position.y << " " << msg.position.z << " " << msg.orientation.x << " " << msg.orientation.y << " " << msg.orientation.z << std::endl;
+	std::cout << std::endl;
+	return double_equal(pose.get_pos_x(), msg.position.x) && double_equal(pose.get_pos_y(), msg.position.y) && double_equal(pose.get_pos_z(), msg.position.z) && double_equal(pose.get_ori_x(), msg.orientation.x) && double_equal(pose.get_ori_y(), msg.orientation.y) && double_equal(pose.get_ori_z(), msg.orientation.z);
+}
+
+void CommandDone_received(const uav::Done::ConstPtr &msgptr, std::string uav_name) {
+	std::cout << "CommandDone received. " << uav_name  << "nameend." << std::endl;
+	uav::Done msg = *msgptr.get();
+	std::cout << msg.commandDone << " " << msg.position.x << " " << msg.position.y << " " << msg.position.z << " " << msg.orientation.x << " " << msg.orientation.y << " " << msg.orientation.z << std::endl;
+
+
+	GLOBALS.mtx.lock();
+	std::cout << "i am here" << std::endl;
+	if(msg.commandDone && correct_done_received(GLOBALS.uav_current_actions[uav_name], msg)) {
+		std::cout << "and here" << std::endl;
+		GLOBALS.uav_action_done[uav_name] = true;
 	}
+	GLOBALS.mtx.unlock();
 }
 
 void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
 
-	ros::Publisher publisher = nh.advertise<uav::UAVPose>(uav.get_name() + "/DesiredPose", 1000);
-	ros::Subscriber subscriber = nh.subscribe(uav.get_name() + "/CommandDone", 1000, &CommandDone_received);
+	ros::Publisher publisher = nh.advertise<uav::UAVPose>(uav.get_name() + "/DesiredPose", 1);
+	std::string uav_name = uav.get_name();
+	ros::Subscriber subscriber = nh.subscribe<uav::Done>(uav.get_name() + "/CommandDone", 1, boost::bind(&CommandDone_received, _1, uav_name));
 
 	debug_print_mutex.lock();
 	std::cout << "Starting " << uav.get_name() << std::endl;
@@ -393,10 +415,18 @@ void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
 			GLOBALS.drive_uav_mtx.lock();
 			uav::UAVPose pose = action.get_UAVPose();
 			publisher.publish(pose);
-			ros::spin();
+			ros::spinOnce();
+			std::cout << "spinned" << std::endl;
 			GLOBALS.drive_uav_mtx.unlock();
 			try_rate.sleep();
 		}
+		
+		GLOBALS.mtx.lock();
+		GLOBALS.completed_actions[action.get_id()] = true;
+		GLOBALS.uav_action_done[uav_name] = false;
+		GLOBALS.action_cnd.notify_all();
+		GLOBALS.mtx.unlock();
+		std::cout << "ima done" << std::endl;
 
 	}
 }
@@ -441,6 +471,8 @@ Pose read_pose(rapidxml::xml_node<>* node) {
 		throw UAVException("{XML ERROR} No z orientation specified");
 	}
 	s_oz = std::stod(pose_node->value());
+
+	std::cout << "{XML POSE READ} " << s_x << " " << s_y << " " << s_z << " " << s_ox << " " << s_oy << " " << s_oz << std::endl;
 
 	return Pose(s_x, s_y, s_z, s_ox, s_oy, s_oz);
 }

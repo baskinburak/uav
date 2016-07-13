@@ -24,8 +24,8 @@
 				<pos_y>5</pos_y>
 				<pos_z>6</pos_z>
 				<ori_x>0</ori_x>
-				<ori_y>2</ori_y>
-				<ori_z>1</ori_z>
+				<ori_y>0</ori_y>
+				<ori_z>0</ori_z>
 			</goto_pose>
 			<wait>
 				<for>0</for>
@@ -33,9 +33,9 @@
 		</action>
 		<action id="2">
 			<goto_pose>
-				<pos_x>0</pos_x>
-				<pos_y>0</pos_y>
-				<pos_z>0</pos_z>
+				<pos_x>10</pos_x>
+				<pos_y>10</pos_y>
+				<pos_z>10</pos_z>
 				<ori_x>0</ori_x>
 				<ori_y>0</ori_y>
 				<ori_z>0</ori_z>
@@ -46,7 +46,7 @@
 		</action>
 	</uav>
 
-	<uav id="1">
+	<!--<uav id="1">
 		<spawn>
 			<pos_x>1</pos_x>
 			<pos_y>0</pos_y>
@@ -57,6 +57,7 @@
 		</spawn>
 		<action id="3">
 			<goto_pose>
+				<pos_x>7</pos_x>
 				<pos_y>8</pos_y>
 				<pos_z>19</pos_z>
 				<ori_x>0</ori_x>
@@ -93,5 +94,5 @@
 				<for>4</for>
 			</wait>
 		</action>
-	</uav>
+	</uav>-->
 </plan>
