@@ -1,3 +1,3 @@
 # linear and angular values of the Uav
-Vector linear
-Vector angular
+Vector position
+Vector orientation

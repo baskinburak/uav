@@ -15,22 +15,12 @@
 #include <condition_variable>
 #include <uav/UAVPose.h>
 #include <uav/Done.h>
+#include <boost/shared_ptr.hpp>
+#include <signal.h>
 
 std::mutex debug_print_mutex;
 
-class GLO {
-	public:
-		std::mutex mtx; // mutex for GLOBALS object.
-		std::mutex action_cnd_uniq_lck_mtx; // used for waiting actions cv.used as a parameter inside unique lock.
-		std::condition_variable action_cnd; // signaled when an action finishes.
-		std::vector<int> action_list;
-		std::map<int, bool> completed_actions;
-		std::vector<std::thread*> thread_refs;
-		std::vector<std::string> uav_names;
-		std::map<std::string, bool> uav_action_done; // stores whether current action of uav is completed.
-		GLO() { }
-} GLOBALS;
-
+void sig_handler(int);
 
 
 class UAVException : public std::exception {
@@ -212,6 +202,10 @@ class Action {
 			return this->_id;
 		}
 
+		Pose get_goto_pose() {
+			return this->_goto_pose;
+		}
+
 		uav::UAVPose get_UAVPose() {
 			uav::UAVPose pose;
 
@@ -304,10 +298,26 @@ class UAV {
 		}
 
 		Action& get_action() {
-			this->_current_action = (this->_action_list).get_head()
-			return *(this->current_action);
+			this->_current_action = (this->_action_list).get_head();
+			return *(this->_current_action);
 		}
 };
+
+class GLO {
+	public:
+		std::mutex mtx; // mutex for GLOBALS object.
+		std::mutex action_cnd_uniq_lck_mtx; // used for waiting actions cv.used as a parameter inside unique lock.
+		std::condition_variable action_cnd; // signaled when an action finishes.
+		std::mutex drive_uav_mtx;
+		std::vector<int> action_list;
+		std::map<int, bool> completed_actions;
+		std::vector<std::thread*> thread_refs;
+		std::vector<std::string> uav_names;
+		std::map<std::string, bool> uav_action_done; // stores whether current action of uav is completed.
+		std::map<std::string, Action*> uav_current_actions;
+		GLO() { }
+} GLOBALS;
+
 
 bool action_can_proceed(Action& action) {
 	bool has_for = false;
@@ -332,15 +342,20 @@ bool action_can_proceed(Action& action) {
 	return true;
 }
 
-void answer_received(const ros::MessageEvent<uav::Done const>& event) {
-	const uav::Done message = event.getMessage();
-	
+void CommandDone_received(const ros::MessageEvent<uav::Done const>& event) {
+	boost::shared_ptr<const uav::Done> mptr = event.getMessage();
+	const uav::Done message = *mptr.get();
+	ros::M_string& header = event.getConnectionHeader();
+
+	for(std::map<std::string, std::string>::iterator it = header.begin(); it != header.end(); it++) {
+		std::cout << it->first << " " << it->second << std::endl;
+	}
 }
 
 void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
 
 	ros::Publisher publisher = nh.advertise<uav::UAVPose>(uav.get_name() + "/DesiredPose", 1000);
-	ros::Subscriber subscriber = nh.subscribe(uav.get_name() + "/CommandDone", 1000, &answer_received);
+	ros::Subscriber subscriber = nh.subscribe(uav.get_name() + "/CommandDone", 1000, &CommandDone_received);
 
 	debug_print_mutex.lock();
 	std::cout << "Starting " << uav.get_name() << std::endl;
@@ -352,12 +367,12 @@ void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
 		std::cout << uav.get_name() << " has action left" << std::endl;
 		debug_print_mutex.unlock();
 
-		Action action = uav.get_action();
+		Action &action = uav.get_action();
 		// send desired pose to DesiredPose
 		// CommandDone // done true? false, x, y, z, ox, oy, oz
 
 		GLOBALS.mtx.lock();
-
+		GLOBALS.uav_current_actions[uav.get_name()] = &action;
 		std::unique_lock<std::mutex> ulck(GLOBALS.action_cnd_uniq_lck_mtx);
 		GLOBALS.mtx.unlock();
 		while(!action_can_proceed(action)) {
@@ -374,9 +389,12 @@ void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
 
 		ros::Rate try_rate(1);
 
-		while(ros::ok() && !GLOBALS.uav_action_done(uav.get_name())) {
+		while(ros::ok() && !GLOBALS.uav_action_done[uav.get_name()]) {
+			GLOBALS.drive_uav_mtx.lock();
 			uav::UAVPose pose = action.get_UAVPose();
 			publisher.publish(pose);
+			ros::spin();
+			GLOBALS.drive_uav_mtx.unlock();
 			try_rate.sleep();
 		}
 
@@ -530,6 +548,8 @@ void populate(ros::NodeHandle& nh) {
 }
 
 int main(int argc, char* argv[]) {
+	signal(SIGINT, sig_handler);
+
 	ros::init(argc, argv, "uav_master");
 	ros::NodeHandle nh;
 
@@ -541,3 +561,10 @@ int main(int argc, char* argv[]) {
 	return 0;
 }
 
+
+void sig_handler(int sig) {
+	std::cout << "ouch" << std::endl;
+	if(sig == SIGINT) {
+		exit(0);
+	}
+}
