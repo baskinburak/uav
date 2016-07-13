@@ -21,9 +21,6 @@
 
 std::mutex debug_print_mutex;
 
-void sig_handler(int);
-
-
 class UAVException : public std::exception {
 	private:
 		std::string _message;
@@ -580,7 +577,6 @@ void populate(ros::NodeHandle& nh) {
 }
 
 int main(int argc, char* argv[]) {
-	signal(SIGINT, sig_handler);
 
 	ros::init(argc, argv, "uav_master");
 	ros::NodeHandle nh;
@@ -594,9 +590,3 @@ int main(int argc, char* argv[]) {
 }
 
 
-void sig_handler(int sig) {
-	std::cout << "ouch" << std::endl;
-	if(sig == SIGINT) {
-		exit(0);
-	}
-}

@@ -424,6 +424,7 @@ void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
 		GLOBALS.mtx.lock();
 		GLOBALS.completed_actions[action.get_id()] = true;
 		GLOBALS.uav_action_done[uav_name] = false;
+		GLOBALS.action_cnd.notify_all();
 		GLOBALS.mtx.unlock();
 		std::cout << "ima done" << std::endl;
 
@@ -579,7 +580,6 @@ void populate(ros::NodeHandle& nh) {
 }
 
 int main(int argc, char* argv[]) {
-	signal(SIGINT, sig_handler);
 
 	ros::init(argc, argv, "uav_master");
 	ros::NodeHandle nh;
@@ -593,9 +593,3 @@ int main(int argc, char* argv[]) {
 }
 
 
-void sig_handler(int sig) {
-	std::cout << "ouch" << std::endl;
-	if(sig == SIGINT) {
-		exit(0);
-	}
-}

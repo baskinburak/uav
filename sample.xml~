@@ -46,7 +46,7 @@
 		</action>
 	</uav>
 
-	<!--<uav id="1">
+	<uav id="1">
 		<spawn>
 			<pos_x>1</pos_x>
 			<pos_y>0</pos_y>
@@ -94,5 +94,5 @@
 				<for>4</for>
 			</wait>
 		</action>
-	</uav>-->
+	</uav>
 </plan>
