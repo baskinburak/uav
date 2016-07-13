@@ -6,11 +6,24 @@
 #include <stdlib.h>
 #include <vector>
 
+
+
+#define Kp_value 1
+#define Kd_value 15
+#define Ki_value 0.015
+#define max_speed 5
+#define max_linked_size 100
+#define equal_const 0.05
 using namespace std;
 
+
+ 
+
+
 bool isEqual(double a,double b){
-	return abs(a-b)>0.01 ? false:true;
+	return abs(a-b)>equal_const ? false:true;
 }
+// Linked list class for integral calculation .it keeps 100 value for linked list and sum.Acts like circular data structure. Provides time interval sum of a value
 class Linked{
 	private:
 		struct Node{
@@ -29,7 +42,7 @@ class Linked{
 		}
 		void SetLinked(){
 			size = 0;
-			maxsize = 100;
+			maxsize = max_linked_size;
 			sum = 0;
 			head = NULL;
 			tail = NULL;
@@ -55,6 +68,7 @@ class Linked{
 			
 			
 		}
+		// Adds one new element to end of the linked list
 		void AddNodeEnd(double value){
 			Node* temp = new Node;
 			temp->value = value;
@@ -75,7 +89,7 @@ class Linked{
 			sum+= value;
 			size++;
 		}
-		
+		//Removes one element from the start of the linked list
 		void DelNodeStart(){
 			Node* temp = head;
 			sum-=temp->value;
@@ -105,7 +119,7 @@ class Linked{
 		int getSize(){
 			return size;
 		}
-		
+		// first fills defined max size then starts removing from start while adding to end.
 		void controlAdd(double value){
 			if(size == maxsize){
 				this->DelNodeStart();
@@ -188,9 +202,9 @@ class PoseHelp{
 			desired_angular.x = 0;
 			desired_angular.y = 0;
 			desired_angular.z = 0;
-			double Kd = 10;
-			double Kp = 1;
-			double Ki = 1;
+			double Kd = Kd_value;
+			double Kp = Kp_value;
+			double Ki = Ki_value;
 			double min = -5;
 			double max = 5;
 			pidx.SetVar(min,max,Kp,Kd,Ki);
@@ -236,14 +250,14 @@ class PoseHelp{
 			return current_position;
 		}
 		
-		float getxDifference(){
+		double getxDifference(){
 			if(isEqual(desired_position.x, current_position.x))
 				return 0;
 			else
 				return (desired_position.x - current_position.x);
 		}
 		
-		float getyDifference(){
+		double getyDifference(){
 			if(isEqual(desired_position.y, current_position.y))
 				return 0;
 			else
@@ -251,7 +265,7 @@ class PoseHelp{
 	
 		}
 		
-		float getzDifference(){
+		double getzDifference(){
 		if(isEqual(desired_position.z, current_position.z))
 				return 0;
 			else
@@ -264,29 +278,62 @@ class PoseHelp{
 		double pidXCalculate(){
 			double error = desired_position.x-current_position.x;
 			double propor = error*pidx.Kp;
+		//	ROS_INFO_STREAM("XXX   propor "<<propor<<"    ");
 			double deriv = (error-pidx.pre_error)*pidx.Kd;
+		//	ROS_INFO_STREAM("XXX   derive "<<deriv<<"     ");
 			pidx.updateIntegral(error);
+			
 			double integ = (pidx.getIntegral())*pidx.Ki;
+		//	ROS_INFO_STREAM("XXXXX integral "<< integ<<"   ");
 			pidx.pre_error = error;
-			return propor + deriv + integ;
+			return propor + deriv;
 		}
 		double pidYCalculate(){
 			double error = desired_position.y-current_position.y;
 			double propor = error*pidy.Kp;
+		//	ROS_INFO_STREAM("YYY   propor "<<propor<<"    ");
 			double deriv = (error-pidy.pre_error)*pidy.Kd;
+	//		ROS_INFO_STREAM("YYY   derive "<<deriv<<"     ");
 			pidy.updateIntegral(error);
 			double integ = (pidy.getIntegral())*pidy.Ki;
+		//	ROS_INFO_STREAM("XXXXX integral "<< integ<<"   ");
 			pidy.pre_error = error;
-			return propor + deriv + integ;
+			return propor + deriv;
 		}
 		double pidZCalculate(){
 			double error = desired_position.z-current_position.z;
 			double propor = error*pidz.Kp;
+		//	ROS_INFO_STREAM("ZZZ   propor "<<propor<<"    ");
 			double deriv = (error-pidz.pre_error)*pidz.Kd;
+		//	ROS_INFO_STREAM("ZZZ   derive "<<deriv<<"     ");
 			pidz.updateIntegral(error);
 			double integ = (pidz.getIntegral())*pidz.Ki;
+		//	ROS_INFO_STREAM("XXXXX integral "<< integ<<"   ");
 			pidz.pre_error = error;
-			return propor + deriv + integ;
+			return propor + deriv ;
+		}
+		
+		void fixForMax(vector<double>& holder){
+			double div;
+			int which = 0;
+			double max = abs(holder[0]);
+			if(abs(holder[1])>max){
+				max = abs(holder[1]);
+				which = 1;
+			}
+			if(abs(holder[2])>max){
+				max = abs(holder[2]);
+				which = 2;
+			}
+			if(max > max_speed){
+				div =max_speed/max;
+			}
+			else
+				return;
+			for(int i=0;i<3;i++){
+				holder[i] = holder[i]*div;
+			}
+			
 		}
 		
 		
@@ -302,15 +349,17 @@ ros::Publisher pub_done;
 void currentPose(const geometry_msgs::PoseStamped &msg){
 	pose_handle.CurrentUpdate(msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
 	geometry_msgs::Twist pub_msg;
+	// Either desired pose or current pose does not exist
 	if((pose_handle.getDesiredSet() == false) || (pose_handle.getCurrentSet() == false))
 		return;
 	if(pose_handle.shouldWait() == false){
-		double x = pose_handle.getxDifference();
-		double y = pose_handle.getyDifference();
-		double z = pose_handle.getzDifference();
+		double x = pose_handle.pidXCalculate();
+		double y = pose_handle.pidYCalculate();
+		double z = pose_handle.pidZCalculate();
+		PoseType desired_position = pose_handle.getDesiredPosition();
+		PoseType current_position = pose_handle.getCurrentPosition();
 		// if UAV is in the correct position
-		if( (x== 0) && (y==0) && (z==0)){
-			PoseType desired_position = pose_handle.getDesiredPosition();
+		if( isEqual(desired_position.x, current_position.x) && isEqual(desired_position.y, current_position.y) && isEqual(desired_position.z, current_position.z) ){
 			pose_handle.setDesiredAchived();
 			uav::Done done_send;
 			done_send.commandDone = true;
@@ -322,12 +371,17 @@ void currentPose(const geometry_msgs::PoseStamped &msg){
 			done_send.orientation.z = 0;
 			pub_done.publish(done_send);
 		}
-		else{
-			pub_msg.linear.x = x;
-			pub_msg.linear.y = y;
-			pub_msg.linear.z = z;
+		
+			vector<double> holder;
+			holder.resize(3);
+			holder[0] = x;
+			holder[1] = y;
+			holder[2] = z;
+			pose_handle.fixForMax(holder);
+			pub_msg.linear.x = holder[0];
+			pub_msg.linear.y = holder[1];
+			pub_msg.linear.z = holder[2];
 			pub_vel.publish(pub_msg);
-		}
 		 
 	}
 	
