@@ -312,7 +312,7 @@ class PoseHelp{
 			pidz.pre_error = error;
 			return propor + deriv ;
 		}
-		
+		// 
 		void fixForMax(vector<double>& holder){
 			double div;
 			int which = 0;
@@ -358,9 +358,9 @@ void currentPose(const geometry_msgs::PoseStamped &msg){
 		double z = pose_handle.pidZCalculate();
 		PoseType desired_position = pose_handle.getDesiredPosition();
 		PoseType current_position = pose_handle.getCurrentPosition();
-		// if UAV is in the correct position
+		// if UAV is in the correct position it will return to CommandDone
 		if( isEqual(desired_position.x, current_position.x) && isEqual(desired_position.y, current_position.y) && isEqual(desired_position.z, current_position.z) ){
-			pose_handle.setDesiredAchived();
+			//pose_handle.setDesiredAchived();
 			uav::Done done_send;
 			done_send.commandDone = true;
 			done_send.position.x = desired_position.x;
@@ -371,17 +371,17 @@ void currentPose(const geometry_msgs::PoseStamped &msg){
 			done_send.orientation.z = 0;
 			pub_done.publish(done_send);
 		}
-		
-			vector<double> holder;
-			holder.resize(3);
-			holder[0] = x;
-			holder[1] = y;
-			holder[2] = z;
-			pose_handle.fixForMax(holder);
-			pub_msg.linear.x = holder[0];
-			pub_msg.linear.y = holder[1];
-			pub_msg.linear.z = holder[2];
-			pub_vel.publish(pub_msg);
+		// corrects the position of the quadro by giving velocity
+		vector<double> holder;
+		holder.resize(3);
+		holder[0] = x;
+		holder[1] = y;
+		holder[2] = z;
+		pose_handle.fixForMax(holder);
+		pub_msg.linear.x = holder[0];
+		pub_msg.linear.y = holder[1];
+		pub_msg.linear.z = holder[2];
+		pub_vel.publish(pub_msg);
 		 
 	}
 	

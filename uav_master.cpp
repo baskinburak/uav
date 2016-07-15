@@ -18,8 +18,15 @@
 #include <boost/shared_ptr.hpp>
 #include <signal.h>
 #include <boost/bind.hpp>
+#include <chrono>
 
 std::mutex debug_print_mutex;
+void print_debug_message(std::string msg) {
+	debug_print_mutex.lock();
+	std::cout << msg << std::endl;
+	debug_print_mutex.unlock();
+};
+
 
 class UAVException : public std::exception {
 	private:
@@ -348,7 +355,7 @@ bool double_equal(double a, double b) {
 
 bool correct_done_received(Action* act, uav::Done msg) {
 	Pose pose = act->get_goto_pose();
-	std::cout << "is correct???" << std::endl;
+	print_debug_message("is correct???");
 	std::cout << pose.get_pos_x() << " " << pose.get_pos_y() << " " << pose.get_pos_z() << " " << pose.get_ori_x() << " " << pose.get_ori_y() << " " << pose.get_ori_z() << std::endl;
 	std::cout << msg.commandDone << " " << msg.position.x << " " << msg.position.y << " " << msg.position.z << " " << msg.orientation.x << " " << msg.orientation.y << " " << msg.orientation.z << std::endl;
 	std::cout << std::endl;
@@ -356,15 +363,15 @@ bool correct_done_received(Action* act, uav::Done msg) {
 }
 
 void CommandDone_received(const uav::Done::ConstPtr &msgptr, std::string uav_name) {
-	std::cout << "CommandDone received. " << uav_name  << "nameend." << std::endl;
+	print_debug_message("CommandDone received. " + uav_name +  " nameend.");
 	uav::Done msg = *msgptr.get();
 	std::cout << msg.commandDone << " " << msg.position.x << " " << msg.position.y << " " << msg.position.z << " " << msg.orientation.x << " " << msg.orientation.y << " " << msg.orientation.z << std::endl;
 
 
 	GLOBALS.mtx.lock();
-	std::cout << "i am here" << std::endl;
+	print_debug_message("i am here");
 	if(msg.commandDone && correct_done_received(GLOBALS.uav_current_actions[uav_name], msg)) {
-		std::cout << "and here" << std::endl;
+		print_debug_message("and here");
 		GLOBALS.uav_action_done[uav_name] = true;
 	}
 	GLOBALS.mtx.unlock();
@@ -376,52 +383,60 @@ void drive_UAV(UAV& uav, ros::NodeHandle& nh) {
 	std::string uav_name = uav.get_name();
 	ros::Subscriber subscriber = nh.subscribe<uav::Done>(uav.get_name() + "/CommandDone", 1, boost::bind(&CommandDone_received, _1, uav_name));
 
-	debug_print_mutex.lock();
-	std::cout << "Starting " << uav.get_name() << std::endl;
-	debug_print_mutex.unlock();
+	print_debug_message("Starting " + uav.get_name());
+	//std::mutex action_cnd_uniq_lck_mtx;
 
 	while(uav.has_action_left()) {
 
-		debug_print_mutex.lock();
-		std::cout << uav.get_name() << " has action left" << std::endl;
-		debug_print_mutex.unlock();
+		print_debug_message(uav.get_name() + " has action left");
 
 		Action &action = uav.get_action();
 		// send desired pose to DesiredPose
 		// CommandDone // done true? false, x, y, z, ox, oy, oz
-
+		print_debug_message(uav.get_name() + " try mutex.");
 		GLOBALS.mtx.lock();
+		print_debug_message(uav.get_name() + " get mutex.");
 		GLOBALS.uav_current_actions[uav.get_name()] = &action;
-		std::unique_lock<std::mutex> ulck(GLOBALS.action_cnd_uniq_lck_mtx);
+		print_debug_message(uav.get_name() + " try mutex2.");
+		//std::unique_lock<std::mutex> ulck(GLOBALS.action_cnd_uniq_lck_mtx);
+		print_debug_message(uav.get_name() + " get mutex2.");
 		GLOBALS.mtx.unlock();
+		print_debug_message(uav.get_name() + " before while");
 		while(!action_can_proceed(action)) {
-			debug_print_mutex.lock();
-			std::cout << action.get_id() << " cannot proceed." << std::endl;
-			debug_print_mutex.unlock();
-			GLOBALS.action_cnd.wait(ulck);
+			print_debug_message(uav.get_name() + " " + std::to_string(action.get_id()) + " cannot proceed.");
+			print_debug_message(uav.get_name() + " before wait");
+		//	GLOBALS.action_cnd.wait(ulck);
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			print_debug_message(uav.get_name() + " after wait");
 		}
-		ulck.unlock();
+		print_debug_message(uav.get_name() + " after while");
+		//ulck.unlock();
+		print_debug_message(uav.get_name() + " release mutex2");
 		//now the action can proceed.
-		debug_print_mutex.lock();
-		std::cout << action.get_id() << " can proceed" << std::endl;
-		debug_print_mutex.unlock();
+		print_debug_message(std::to_string(action.get_id()) + " can proceed");
 
 		ros::Rate try_rate(1);
-
+		
+		//GLOBALS.mtx.lock();
 		while(ros::ok() && !GLOBALS.uav_action_done[uav.get_name()]) {
 			GLOBALS.drive_uav_mtx.lock();
+			//GLOBALS.mtx.unlock();
 			uav::UAVPose pose = action.get_UAVPose();
 			publisher.publish(pose);
 			ros::spinOnce();
 			std::cout << "spinned" << std::endl;
+			//GLOBALS.mtx.lock();
 			GLOBALS.drive_uav_mtx.unlock();
 			try_rate.sleep();
 		}
+		//GLOBALS.mtx.unlock();
 		
 		GLOBALS.mtx.lock();
 		GLOBALS.completed_actions[action.get_id()] = true;
 		GLOBALS.uav_action_done[uav_name] = false;
+	//	std::unique_lock<std::mutex> lck(GLOBALS.action_cnd_uniq_lck_mtx);
 		GLOBALS.action_cnd.notify_all();
+		//lck.unlock();
 		GLOBALS.mtx.unlock();
 		std::cout << "ima done" << std::endl;
 

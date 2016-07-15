@@ -13,7 +13,7 @@
 #define Ki_value 0.015
 #define max_speed 5
 #define max_linked_size 100
-#define equal_const 0.05
+#define equal_const 0.5
 using namespace std;
 
 
@@ -360,7 +360,7 @@ void currentPose(const geometry_msgs::PoseStamped &msg){
 		PoseType current_position = pose_handle.getCurrentPosition();
 		// if UAV is in the correct position it will return to CommandDone
 		if( isEqual(desired_position.x, current_position.x) && isEqual(desired_position.y, current_position.y) && isEqual(desired_position.z, current_position.z) ){
-			pose_handle.setDesiredAchived();
+			//pose_handle.setDesiredAchived();
 			uav::Done done_send;
 			done_send.commandDone = true;
 			done_send.position.x = desired_position.x;
